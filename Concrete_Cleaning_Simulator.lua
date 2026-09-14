@@ -5,7 +5,7 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
 Name = "Concrete Cleaning Simulator - v1.3.3",
 LoadingTitle = "Concrete Cleaning Simulator",
-LoadingSubtitle = "make by LSS",
+LoadingSubtitle = "made by LSS",
 ConfigurationSaving = { Enabled = false },
 Discord = { Enabled = false },
 KeySystem = false
