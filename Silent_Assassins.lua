@@ -6,7 +6,7 @@ local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 local Window = Rayfield:CreateWindow({
     Name = "Silent Assassins - v1.8.0",
     LoadingTitle = "Silent Assassins",
-    LoadingSubtitle = "make by LSS",
+    LoadingSubtitle = "made by LSS",
     ConfigurationSaving = { Enabled = false, FolderName = nil, FileName = "SilentAssassins" },
     Discord = { Enabled = false, Invite = "noinvitelink", RememberJoins = true },
     KeySystem = false,
