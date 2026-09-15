@@ -1,6 +1,4 @@
 if game.PlaceId ~= 103854444055060 and game.GameId ~= 103854444055060 then return end
-if type(hookmetamethod) ~= "function" or type(getnamecallmethod) ~= "function" or type(getgc) ~= "function" or type(getconnections) ~= "function" then return end
-
 local Rayfield = loadstring(game:HttpGet('https://sirius.menu/rayfield'))()
 
 local Window = Rayfield:CreateWindow({
