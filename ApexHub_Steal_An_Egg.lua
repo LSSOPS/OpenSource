@@ -1,15 +1,3 @@
---[[
-    Apex Hub - Steal an Egg
-    Standalone UI (no external library)
-    Discord: https://discord.gg/kptjwzKWgX
-    Anti-Kick Edition (BAC-10516 mitigation)
-    Steal Speed up to 2000 + Bypass Return Speed up to 2000
-    Flow: Grab1 -> Hold 3s (Anchored) -> Release -> Grab2 -> Return Base -> Loop
---]]
-
--- ============================================================
--- COMPAT SHIMS
--- ============================================================
 local _G_ENV = (getgenv and getgenv()) or _G
 
 if type(table.pack) ~= "function" then
