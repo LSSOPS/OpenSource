@@ -1,9 +1,3 @@
---[[
-    Lunar X
-    Copyright (c) 2026 nick (.weound)
-    Licensed under the Non-Commercial Share-Alike License (see LICENSE in the repo root).
---]]
-
 local prev_lib = getgenv().lx_jts_lib
 local gen = (getgenv().lx_jts_gen or 0) + 1
 getgenv().lx_jts_gen = gen
