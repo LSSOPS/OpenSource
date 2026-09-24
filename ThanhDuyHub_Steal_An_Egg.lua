@@ -1,5 +1,3 @@
--- ThanhDuyHub | SETTINGS + AUTORUN | CLEAN
--- Single executable source: duplicate embedded UI/source removed.
 if not game then
     error("ThanhDuyHub: Run this script in a Roblox executor, not a Lua editor.")
 end
