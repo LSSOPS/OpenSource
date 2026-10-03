@@ -2001,16 +2001,24 @@ end)
 local v98 = {}
 local v99 = {}
 local f28
+local v103_ESPFolder
+local v104_LocalTracerAttachment
 
 local function f29()
-  for key4, value30 in pairs(v98) do
-    f28(key4)
+  local keys = {}
+
+  for key4 in pairs(v98) do
+    table.insert(keys, key4)
+  end
+
+  for _, key4 in ipairs(keys) do
+    pcall(function() f28(key4) end)
   end
 
   local renderedEggs2 = workspaceService:FindFirstChild("RenderedEggs")
 
   if renderedEggs2 then
-    for index25, value31 in ipairs(renderedEggs2:GetChildren()) do
+    for _, value31 in ipairs(renderedEggs2:GetChildren()) do
       local roxyEggESP2 = value31:FindFirstChild("RoxyEggESP")
 
       if roxyEggESP2 then
@@ -2019,40 +2027,51 @@ local function f29()
     end
   end
 
-  for index26, value32 in ipairs(v99) do
-    local v100 = value32
-
+  for _, value32 in ipairs(v99) do
     pcall(function()
-      v100.Visible = false
-      v100:Remove()
+      if value32.Enabled ~= nil then
+        value32.Enabled = false
+      end
+      if value32.Visible ~= nil then
+        value32.Visible = false
+      end
+      if value32.Destroy then
+        value32:Destroy()
+      elseif value32.Remove then
+        value32:Remove()
+      end
     end)
   end
 
   table.clear(v99)
   table.clear(v98)
+
+  if v104_LocalTracerAttachment then
+    pcall(function() v104_LocalTracerAttachment:Destroy() end)
+    v104_LocalTracerAttachment = nil
+  end
+
+  local espFolder = workspaceService:FindFirstChild("RoxyHub_ESP")
+  if espFolder then
+    pcall(function() espFolder:Destroy() end)
+  end
+  v103_ESPFolder = nil
 end
 
 function f28(p28)
   local v101 = v98[p28]
 
   if v101 then
-    if v101.Billboard and v101.Billboard.Parent then
-      v101.Billboard:Destroy()
-    end
-
-    if v101.Highlight then
-      pcall(function()
-        v101.Highlight.DepthMode = Enum.HighlightDepthMode.Occluded
-        v101.Highlight.FillTransparency = 1
-        v101.Highlight.OutlineTransparency = 0.5
-      end)
-    end
-
-    if v101.Tracer then
-      pcall(function()
-        v101.Tracer.Visible = false
-        v101.Tracer:Remove()
-      end)
+    for _, object in ipairs({
+      v101.Billboard,
+      v101.Highlight,
+      v101.Tracer,
+      v101.TracerAttachment,
+      v101.Anchor,
+    }) do
+      if object then
+        pcall(function() object:Destroy() end)
+      end
     end
 
     v98[p28] = nil
@@ -2189,18 +2208,403 @@ local function f31(p30, p31)
   end
 end
 
-task.spawn(function()
-  while not (_G.RoxyHubInstanceId ~= roxyHubInstanceId) do
-    task.wait(0.25)
-    local renderedEggs3 = workspaceService:FindFirstChild("RenderedEggs")
+local function f35_ESPFolder()
+  if v103_ESPFolder and v103_ESPFolder.Parent then
+    return v103_ESPFolder
+  end
 
-    if renderedEggs3 and roxyHubState.ESP_Enabled then
-      for index28, value34 in ipairs(renderedEggs3:GetChildren()) do
-      end
-    elseif not roxyHubState.ESP_Enabled then
-      f29()
+  local existing = workspaceService:FindFirstChild("RoxyHub_ESP")
+  if existing and existing:IsA("Folder") then
+    v103_ESPFolder = existing
+  else
+    v103_ESPFolder = Instance.new("Folder")
+    v103_ESPFolder.Name = "RoxyHub_ESP"
+    v103_ESPFolder.Parent = workspaceService
+  end
+
+  return v103_ESPFolder
+end
+
+local function f36_ESPMinWeight()
+  local minimum = roxyHubState.ESP_MinRarity
+
+  if minimum == "All Eggs" then
+    return 0
+  elseif minimum == "Rare & Above" then
+    return v17.Rare or 500
+  elseif minimum == "Epic & Above" then
+    return v17.Epic or 600
+  elseif minimum == "Legendary & Above" then
+    return v17.Legendary or 700
+  elseif minimum == "Mythic & Above" then
+    return v17.Mythic or 800
+  elseif minimum == "Divine & Above" then
+    return v17.Divine or 900
+  elseif minimum == "Ethereal Only" then
+    return v17.Ethereal or 1000
+  end
+
+  return v17.Rare or 500
+end
+
+local function f37_ESPVisualPart(egg, entry)
+  if entry and entry.VisualPart and entry.VisualPart.Parent then
+    return entry.VisualPart
+  end
+
+  local part = nil
+
+  if egg.PrimaryPart and egg.PrimaryPart:IsA("BasePart") then
+    part = egg.PrimaryPart
+  end
+
+  if not part then
+    local named = egg:FindFirstChild("Hitbox", true)
+    if named and named:IsA("BasePart") then
+      part = named
     end
   end
+
+  if not part then
+    part = egg:FindFirstChildWhichIsA("BasePart", true)
+  end
+
+  if part then
+    entry.VisualPart = part
+    return part
+  end
+
+  local folder = f35_ESPFolder()
+  local anchor = Instance.new("Part")
+  anchor.Name = "RoxyESPAnchor"
+  anchor.Size = Vector3.new(0.2, 0.2, 0.2)
+  anchor.Transparency = 1
+  anchor.Anchored = true
+  anchor.CanCollide = false
+  anchor.CanTouch = false
+  anchor.CanQuery = false
+  anchor.CastShadow = false
+  anchor.CFrame = egg:GetPivot()
+  anchor.Parent = folder
+  entry.Anchor = anchor
+  entry.VisualPart = anchor
+
+  return anchor
+end
+
+local function f38_ESPLocalAttachment()
+  local character, root = f13()
+
+  if not root or not root:IsA("BasePart") then
+    return nil
+  end
+
+  if v104_LocalTracerAttachment and v104_LocalTracerAttachment.Parent ~= root then
+    pcall(function() v104_LocalTracerAttachment:Destroy() end)
+    v104_LocalTracerAttachment = nil
+  end
+
+  if not v104_LocalTracerAttachment then
+    v104_LocalTracerAttachment = Instance.new("Attachment")
+    v104_LocalTracerAttachment.Name = "RoxyESP_LocalTracer"
+    v104_LocalTracerAttachment.Position = Vector3.new(0, 1.5, 0)
+    v104_LocalTracerAttachment.Parent = root
+  end
+
+  return v104_LocalTracerAttachment
+end
+
+local function f39_ESPColor(rarity, mutation)
+  if mutation and mutation ~= "" then
+    return v23[mutation] or v18[rarity] or v18.Unknown
+  end
+
+  return v18[rarity] or v18.Unknown
+end
+
+local function f40_ESPText(egg, rarity, eggWeight, mutation, distance)
+  local name = egg.Name
+  local first = string.format("%s [%s]", name, rarity)
+  local details = {}
+
+  if eggWeight and eggWeight > 0 then
+    table.insert(details, f20(eggWeight))
+  end
+
+  if mutation and mutation ~= "" then
+    table.insert(details, tostring(mutation))
+  end
+
+  table.insert(details, string.format("%d studs", math.floor(distance + 0.5)))
+
+  return first, table.concat(details, " | ")
+end
+
+local function f41_ESPCreateHighlight(egg, entry)
+  if not roxyHubState.ESP_Highlights then
+    if entry.Highlight then
+      entry.Highlight.Enabled = false
+    end
+    return
+  end
+
+  local highlight = entry.Highlight
+
+  if not highlight or not highlight.Parent then
+    highlight = Instance.new("Highlight")
+    highlight.Name = "RoxyESPHighlight"
+    highlight.Adornee = egg
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+    highlight.FillTransparency = 0.82
+    highlight.OutlineTransparency = 0.04
+    highlight.Enabled = true
+    highlight.Parent = f35_ESPFolder()
+    entry.Highlight = highlight
+  else
+    highlight.Enabled = true
+    highlight.Adornee = egg
+    highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+  end
+end
+
+local function f42_ESPCreateBillboard(egg, entry, visualPart, title, details, color)
+  if not roxyHubState.ESP_Billboards then
+    if entry.Billboard then
+      entry.Billboard.Enabled = false
+    end
+    return
+  end
+
+  local billboard = entry.Billboard
+
+  if not billboard or not billboard.Parent then
+    billboard = Instance.new("BillboardGui")
+    billboard.Name = "RoxyESPBillboard"
+    billboard.Size = UDim2.fromOffset(210, 52)
+    billboard.StudsOffset = Vector3.new(0, 3.75, 0)
+    billboard.AlwaysOnTop = true
+    billboard.LightInfluence = 0
+    billboard.MaxDistance = math.max(100, tonumber(roxyHubState.ESP_MaxDistance) or 5000)
+    billboard.ResetOnSpawn = false
+    billboard.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+    billboard.Adornee = visualPart
+    billboard.Enabled = true
+    billboard.Parent = f35_ESPFolder()
+
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Name = "Title"
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Size = UDim2.new(1, 0, 0, 25)
+    titleLabel.Position = UDim2.new(0, 0, 0, 0)
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextSize = 14
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Center
+    titleLabel.TextStrokeTransparency = 0.25
+    titleLabel.TextColor3 = color
+    titleLabel.Text = title
+    titleLabel.Parent = billboard
+
+    local detailLabel = Instance.new("TextLabel")
+    detailLabel.Name = "Details"
+    detailLabel.BackgroundTransparency = 1
+    detailLabel.Size = UDim2.new(1, 0, 0, 22)
+    detailLabel.Position = UDim2.new(0, 0, 0, 24)
+    detailLabel.Font = Enum.Font.GothamMedium
+    detailLabel.TextSize = 12
+    detailLabel.TextXAlignment = Enum.TextXAlignment.Center
+    detailLabel.TextStrokeTransparency = 0.35
+    detailLabel.TextColor3 = Color3.fromRGB(235, 240, 255)
+    detailLabel.Text = details
+    detailLabel.Parent = billboard
+
+    entry.Billboard = billboard
+    entry.TitleLabel = titleLabel
+    entry.DetailLabel = detailLabel
+  end
+
+  billboard.Adornee = visualPart
+  billboard.Enabled = true
+  billboard.MaxDistance = math.max(100, tonumber(roxyHubState.ESP_MaxDistance) or 5000)
+  entry.TitleLabel.Text = title
+  entry.TitleLabel.TextColor3 = color
+  entry.DetailLabel.Text = details
+end
+
+local function f43_ESPCreateTracer(entry, visualPart, color)
+  if not roxyHubState.ESP_Tracers then
+    if entry.Tracer then
+      entry.Tracer.Enabled = false
+    end
+    return
+  end
+
+  local localAttachment = f38_ESPLocalAttachment()
+
+  if not localAttachment or not visualPart or not visualPart:IsA("BasePart") then
+    if entry.Tracer then
+      entry.Tracer.Enabled = false
+    end
+    return
+  end
+
+  if not entry.TracerAttachment or entry.TracerAttachment.Parent ~= visualPart then
+    if entry.TracerAttachment then
+      pcall(function() entry.TracerAttachment:Destroy() end)
+    end
+
+    local tracerAttachment = Instance.new("Attachment")
+    tracerAttachment.Name = "RoxyESP_EggTracer"
+    tracerAttachment.Parent = visualPart
+    entry.TracerAttachment = tracerAttachment
+  end
+
+  local beam = entry.Tracer
+
+  if not beam or not beam.Parent then
+    beam = Instance.new("Beam")
+    beam.Name = "RoxyESPTracer"
+    beam.Attachment0 = localAttachment
+    beam.Attachment1 = entry.TracerAttachment
+    beam.FaceCamera = true
+    beam.Width0 = 0.055
+    beam.Width1 = 0.03
+    beam.LightEmission = 1
+    beam.Segments = 6
+    beam.Transparency = NumberSequence.new(0.1)
+    beam.Enabled = true
+    beam.Parent = f35_ESPFolder()
+    entry.Tracer = beam
+  else
+    beam.Attachment0 = localAttachment
+    beam.Attachment1 = entry.TracerAttachment
+    beam.Enabled = true
+  end
+
+  beam.Color = ColorSequence.new(color)
+end
+
+local function f44_ESPUpdateEgg(egg)
+  if not egg or not egg.Parent or _G.RoxyHubInstanceId ~= roxyHubInstanceId then
+    return
+  end
+
+  local _, root = f13()
+  if not root then
+    return
+  end
+
+  local entry = v98[egg]
+  if not entry then
+    entry = {}
+    v98[egg] = entry
+  end
+
+  local rarity = f4(egg.Name)
+  local rarityWeight = v17[rarity] or 0
+  local distance = (egg:GetPivot().Position - root.Position).Magnitude
+  local maxDistance = math.max(100, tonumber(roxyHubState.ESP_MaxDistance) or 5000)
+
+  if rarityWeight < f36_ESPMinWeight() or distance > maxDistance then
+    f28(egg)
+    return
+  end
+
+  local eggWeight = f30(egg)
+  local mutation = f9(egg)
+  local color = f39_ESPColor(rarity, mutation)
+  local visualPart = f37_ESPVisualPart(egg, entry)
+
+  if entry.Anchor and entry.Anchor.Parent then
+    entry.Anchor.CFrame = egg:GetPivot()
+  end
+
+  f41_ESPCreateHighlight(egg, entry)
+
+  local title, details = f40_ESPText(egg, rarity, eggWeight, mutation, distance)
+  f42_ESPCreateBillboard(egg, entry, visualPart, title, details, color)
+  f43_ESPCreateTracer(entry, visualPart, color)
+
+  if entry.Billboard and entry.Billboard.Parent then
+    entry.Billboard.Adornee = visualPart
+  end
+
+  if entry.Highlight and entry.Highlight.Parent then
+    entry.Highlight.FillColor = color
+    entry.Highlight.OutlineColor = color
+    entry.Highlight.Enabled = roxyHubState.ESP_Highlights == true
+  end
+end
+
+local function f45_ESPRefresh()
+  if _G.RoxyHubInstanceId ~= roxyHubInstanceId then
+    return
+  end
+
+  if not roxyHubState.ESP_Enabled then
+    f29()
+    return
+  end
+
+  local renderedEggs3 = workspaceService:FindFirstChild("RenderedEggs")
+  if not renderedEggs3 then
+    f29()
+    return
+  end
+
+  local seen = {}
+
+  for _, egg in ipairs(renderedEggs3:GetChildren()) do
+    if egg and egg.Parent then
+      seen[egg] = true
+      pcall(f44_ESPUpdateEgg, egg)
+    end
+  end
+
+  for egg in pairs(v98) do
+    if not seen[egg] or not egg or not egg.Parent then
+      f28(egg)
+    end
+  end
+end
+
+-- Re-render instantly when an egg spawns instead of waiting for the polling interval.
+do
+  local renderedEggs3 = workspaceService:FindFirstChild("RenderedEggs")
+
+  if renderedEggs3 then
+    table.insert(_G.RoxyHubConnections, renderedEggs3.ChildAdded:Connect(function(child)
+      if roxyHubState.ESP_Enabled then
+        task.defer(function()
+          if child and child.Parent then
+            pcall(f44_ESPUpdateEgg, child)
+          end
+        end)
+      end
+    end))
+  end
+
+  table.insert(_G.RoxyHubConnections, workspaceService.ChildAdded:Connect(function(child)
+    if child.Name == "RenderedEggs" then
+      table.insert(_G.RoxyHubConnections, child.ChildAdded:Connect(function(egg)
+        if roxyHubState.ESP_Enabled then
+          task.defer(function()
+            if egg and egg.Parent then
+              pcall(f44_ESPUpdateEgg, egg)
+            end
+          end)
+        end
+      end))
+    end
+  end))
+end
+
+task.spawn(function()
+  while _G.RoxyHubInstanceId == roxyHubInstanceId do
+    task.wait(0.35)
+    pcall(f45_ESPRefresh)
+  end
+
+  f29()
 end)
 
 local function f32(p32)
@@ -4642,6 +5046,14 @@ if not v318 then
   error("[RoxyHub] Failed to load WindUI engine. Check connection or WindUI_Cache.lua.", 0)
 end
 
+-- WindUI runtime compatibility patch: use Roblox's built-in Gotham family and
+-- disable the font-registry rewrite that can cross a restricted capability boundary.
+pcall(function()
+  v318 = v318:gsub("rbxassetid://12187365364", "rbxasset://fonts/families/GothamSSm.json")
+  v318 = v318:gsub("function p.AddFontObject%(r%)%s*table%.insert%(p.FontObjects,r%)%s*p%.UpdateFont%(p%.Font%)%s*end", "function p.AddFontObject(r)\n table.insert(p.FontObjects,r)\nend")
+  v318 = v318:gsub("function p.UpdateFont%(r%)%s*p%.Font=r%s*for u,v in next,p%.FontObjects do%s*v%.FontFace=Font%.new%(r,v%.FontFace%.Weight,v%.FontFace%.Style%)%s*end%s*end", "function p.UpdateFont(r)\n p.Font=r\nend")
+end)
+
 local v321, v322 = loadstring(v318)
 
 if not v321 then
@@ -5530,9 +5942,13 @@ f48(eggESPTab, "Egg ESP", function()
     Title = "Egg ESP Master Toggle",
     Value = roxyHubState.ESP_Enabled,
     Callback = function(value105)
-      roxyHubState.ESP_Enabled = value105
+      roxyHubState.ESP_Enabled = value105 == true
 
-      if not value105 then
+      if roxyHubState.ESP_Enabled then
+        task.defer(function()
+          pcall(f45_ESPRefresh)
+        end)
+      else
         f29()
       end
     end,
@@ -5545,7 +5961,9 @@ f48(eggESPTab, "Egg ESP", function()
       "Floating Text Only (Clean)", "Highlights Only (Minimal)", "Tracers Only",
     },
     Value = roxyHubState.ESP_VisualPreset,
-    Callback = function(value106) f10(value106) end,
+    Callback = function(value106) f10(value106)
+      task.defer(function() pcall(f45_ESPRefresh) end)
+    end,
   })
 
   v333.ESP_MinRarity = espControlsSection:Dropdown({
@@ -5557,7 +5975,11 @@ f48(eggESPTab, "Egg ESP", function()
     Value = roxyHubState.ESP_MinRarity,
     Callback = function(value107)
       roxyHubState.ESP_MinRarity = value107
-      f29()
+      if roxyHubState.ESP_Enabled then
+        task.defer(function() pcall(f45_ESPRefresh) end)
+      else
+        f29()
+      end
     end,
   })
 
@@ -5565,7 +5987,10 @@ f48(eggESPTab, "Egg ESP", function()
     Title = "ESP Max Render Distance",
     Step = 500,
     Value = { Min = 500, Max = 15000, Default = roxyHubState.ESP_MaxDistance },
-    Callback = function(value108) roxyHubState.ESP_MaxDistance = value108 end,
+    Callback = function(value108)
+      roxyHubState.ESP_MaxDistance = tonumber(value108) or 5000
+      task.defer(function() pcall(f45_ESPRefresh) end)
+    end,
   })
 
   local paragraph = eggESPTab:Section({ Title = "Live High-Tier Radar", Opened = true }):Paragraph({
@@ -5650,6 +6075,10 @@ f48(eggESPTab, "Egg ESP", function()
     end
   end)
 end)
+
+if roxyHubState.ESP_Enabled then
+  task.defer(function() pcall(f45_ESPRefresh) end)
+end
 
 f48(teleportsTab, "Teleports", function()
   local section8 = teleportsTab:Section({ Title = "Base & Plot Fast Travel", Opened = true })
@@ -5917,9 +6346,7 @@ f48(settingsTab, "Settings", function()
       for index68, value120 in ipairs(v99) do
       end
 
-      for key12, value121 in pairs(v98) do
-        f28(key12)
-      end
+      f29()
 
       if v332 then
         pcall(function() v332:Destroy() end)
