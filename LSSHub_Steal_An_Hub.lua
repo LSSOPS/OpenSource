@@ -1,5 +1,5 @@
 if not game then
-    error("LSS: Run this script in a Roblox executor, not a Lua editor.")
+    error("LSS: Run this script in a Roblox executor, not a Lua editor")
 end
 
 if type(writefile) == "function" then
