@@ -705,8 +705,18 @@ if roxyHubState.FarmMode == nil then
   roxyHubState.FarmMode = "Safe Tween"
 end
 
-if roxyHubState.TweenSpeed == nil then
-  roxyHubState.TweenSpeed = 300
+-- One shared speed for flying to the egg AND carrying it back to the plot.
+-- Default 1250, max 10000. Read live every frame, so changing it while
+-- Master Auto Farm is running takes effect immediately.
+if roxyHubState.TweenSpeed == nil or roxyHubState.TweenSpeed == 300 then
+  roxyHubState.TweenSpeed = 1250
+end
+
+-- ReturnSpeed was merged into TweenSpeed
+roxyHubState.ReturnSpeed = nil
+
+if roxyHubState.StealApproach == nil then
+  roxyHubState.StealApproach = "Over Map"
 end
 
 if roxyHubState.SyncDelay == nil then
@@ -3021,107 +3031,548 @@ local function f36(p56, p57)
   end)
 end
 
+
+-- =====================================================================
+-- Skyhawk-style movement (ported from the Skyhawk script's Tween)
+--  * Safe Tween : Heartbeat-stepped flight along waypoints (up/over or under map)
+--  * Instant    : instant teleport, but eggs are staged OUTSIDE the plot first,
+--                 re-picked, and only then carried into the plot
+-- Everything lives in ONE table so it only costs one top-level local.
+-- =====================================================================
+local skyMove = {}
+
+do
+  local CRUISE_HEIGHT = 45
+  local OVER_HEIGHT = 250
+  local VOID_DEPTH = 110
+  local savedCollide = {}
+
+  -- shared flight speed (egg run + return to plot), always read live
+  local function currentSpeed()
+    return math.clamp(tonumber(roxyHubState.TweenSpeed) or 1250, 20, 10000)
+  end
+
+  local function root()
+    local character = localPlayer2.Character
+    local hrp = character and character:FindFirstChild("HumanoidRootPart")
+    if hrp and hrp:IsDescendantOf(workspaceService) then
+      return hrp
+    end
+    return nil
+  end
+
+  local function setNoclip(on)
+    local character = localPlayer2.Character
+    if not character then
+      return
+    end
+
+    for _, part in ipairs(character:GetDescendants()) do
+      if part:IsA("BasePart") then
+        if on then
+          if savedCollide[part] == nil then
+            savedCollide[part] = part.CanCollide
+          end
+          part.CanCollide = false
+        elseif savedCollide[part] ~= nil then
+          part.CanCollide = savedCollide[part]
+        end
+      end
+    end
+
+    if not on then
+      table.clear(savedCollide)
+    end
+  end
+
+  local function route(from, to, opts)
+    if Vector3.new(to.X - from.X, 0, to.Z - from.Z).Magnitude < 80 and math.abs(to.Y - from.Y) < 30 then
+      return { to }
+    end
+
+    if opts and opts.Void then
+      local voidY = math.min(from.Y, to.Y) - VOID_DEPTH
+      voidY = math.max(voidY, workspaceService.FallenPartsDestroyHeight + 60)
+      return {
+        Vector3.new(from.X, voidY, from.Z),
+        Vector3.new(to.X, voidY, to.Z),
+        to,
+      }
+    end
+
+    local cruise = (opts and opts.Over) and OVER_HEIGHT or CRUISE_HEIGHT
+    local y = math.max(from.Y, to.Y) + cruise
+    return { Vector3.new(from.X, y, from.Z), Vector3.new(to.X, y, to.Z), to }
+  end
+
+  local function noclipConnection()
+    return runService.Stepped:Connect(function()
+      local character = localPlayer2.Character
+      if not character then
+        return
+      end
+
+      for _, part in ipairs(character:GetDescendants()) do
+        if part:IsA("BasePart") and part.CanCollide then
+          part.CanCollide = false
+        end
+      end
+    end)
+  end
+
+  -- approach dropdown -> route options (same as Skyhawk's RouteOpts)
+  function skyMove.RouteOpts()
+    if roxyHubState.StealApproach == "Under Map" then
+      return { Void = true }
+    elseif roxyHubState.StealApproach == "Over Map" then
+      return { Over = true }
+    end
+    return nil
+  end
+
+  -- Skyhawk FlyTo: waypoint flight stepped on Heartbeat
+  function skyMove.FlyTo(target, cancelFn, arriveDist, opts)
+    local hrp = root()
+    if not hrp or typeof(target) ~= "Vector3" then
+      return false
+    end
+
+    local arrive = arriveDist or 3
+    if (hrp.Position - target).Magnitude <= arrive then
+      return true
+    end
+
+    local startPosition = hrp.Position
+    local waypoints = route(hrp.Position, target, opts)
+
+    local total, last = 0, hrp.Position
+    for _, wp in ipairs(waypoints) do
+      total = total + (wp - last).Magnitude
+      last = wp
+    end
+
+    -- The speed slider is read live every frame (currentSpeed), so the time
+    -- budget cannot be a fixed deadline from the starting speed. Instead:
+    --   * hard cap based on the slowest possible speed, and
+    --   * a stall check (no progress for 3s -> give up).
+    local startedAt = os.clock()
+    local hardCap = total / 20 + 10
+    local lastProgress = os.clock()
+    local bestMag = math.huge
+    local lastIndex = 1
+
+    -- token keeps v35.CurrentTween compatible (Cancel(), NoClip loop, etc.)
+    local token = { Cancelled = false }
+    function token:Cancel()
+      self.Cancelled = true
+    end
+    v35.CurrentTween = token
+
+    setNoclip(true)
+    local noclipConn = noclipConnection()
+
+    local index = 1
+    local arrived = false
+
+    while os.clock() - startedAt < hardCap do
+      if token.Cancelled or (cancelFn and cancelFn()) then
+        break
+      end
+
+      local dt = runService.Heartbeat:Wait()
+      hrp = root()
+      if not hrp then
+        break
+      end
+
+      local isLast = index == #waypoints
+      local delta = waypoints[index] - hrp.Position
+      local mag = delta.Magnitude
+
+      if index ~= lastIndex then
+        lastIndex = index
+        bestMag = math.huge
+      end
+      if mag < bestMag - 0.5 then
+        bestMag = mag
+        lastProgress = os.clock()
+      end
+      if os.clock() - lastProgress > 3 then
+        break
+      end
+
+      if mag <= (isLast and arrive or 2) then
+        if isLast then
+          arrived = true
+          break
+        end
+        index = index + 1
+      else
+        local step = math.min(mag, currentSpeed() * dt)
+        local flat = Vector3.new(delta.X, 0, delta.Z)
+        local rotation = flat.Magnitude > 0.1 and CFrame.lookAt(Vector3.zero, flat.Unit)
+          or hrp.CFrame.Rotation
+        local nextPosition = hrp.Position + delta.Unit * step
+
+        -- big hops: pre-load terrain ahead so we never fall into the void
+        if step > 60 then
+          pcall(function()
+            if typeof(workspaceService.RequestStreamAroundAsync) == "function" then
+              workspaceService:RequestStreamAroundAsync(nextPosition, 16)
+            end
+          end)
+        end
+
+        pcall(function()
+          hrp.CFrame = CFrame.new(nextPosition) * rotation
+          hrp.AssemblyLinearVelocity = Vector3.zero
+          hrp.AssemblyAngularVelocity = Vector3.zero
+        end)
+      end
+    end
+
+    hrp = root()
+
+    -- fall-through safety (same anchor-and-reteleport trick as Skyhawk)
+    if hrp and hrp.Position.Y < math.min(target.Y, startPosition.Y) - 15 then
+      local recoverTo = arrived and target or startPosition
+      pcall(function()
+        local wasAnchored = hrp.Anchored
+        hrp.Anchored = true
+        hrp.AssemblyLinearVelocity = Vector3.zero
+        hrp.CFrame = CFrame.new(recoverTo)
+        runService.Heartbeat:Wait()
+        hrp.Anchored = wasAnchored
+      end)
+      hrp = root()
+    end
+
+    noclipConn:Disconnect()
+    setNoclip(false)
+    if v35.CurrentTween == token then
+      v35.CurrentTween = nil
+    end
+
+    hrp = root()
+    if hrp then
+      pcall(function()
+        hrp.AssemblyLinearVelocity = Vector3.zero
+      end)
+      if (hrp.Position - target).Magnitude <= arrive + 1 then
+        return true
+      end
+    end
+
+    return arrived
+  end
+
+  -- Skyhawk InstantFlyTo: teleport, stay anchored while terrain streams in
+  function skyMove.InstantFlyTo(target, cancelFn, arriveDist)
+    local hrp = root()
+    if not hrp or typeof(target) ~= "Vector3" then
+      return false
+    end
+
+    local arrive = arriveDist or 3
+    if (hrp.Position - target).Magnitude <= arrive then
+      return true
+    end
+    if cancelFn and cancelFn() then
+      return false
+    end
+
+    if v35.CurrentTween then
+      pcall(function() v35.CurrentTween:Cancel() end)
+      v35.CurrentTween = nil
+    end
+
+    setNoclip(true)
+    local noclipConn = noclipConnection()
+    local wasAnchored = hrp.Anchored
+
+    local function teleportTo(position)
+      local r = root()
+      if not r then
+        return
+      end
+      pcall(function()
+        r.Anchored = true
+        r.AssemblyLinearVelocity = Vector3.zero
+        r.AssemblyAngularVelocity = Vector3.zero
+        r.CFrame = CFrame.new(position)
+      end)
+    end
+
+    teleportTo(target)
+
+    pcall(function()
+      if typeof(workspaceService.RequestStreamAroundAsync) == "function" then
+        workspaceService:RequestStreamAroundAsync(target, 16)
+      end
+    end)
+
+    for _ = 1, 5 do
+      if cancelFn and cancelFn() then
+        break
+      end
+      runService.Heartbeat:Wait()
+    end
+
+    local r = root()
+    if r and r.Position.Y < target.Y - 15 then
+      teleportTo(target)
+      runService.Heartbeat:Wait()
+      r = root()
+    end
+
+    pcall(function()
+      if r then
+        r.Anchored = wasAnchored
+        r.AssemblyLinearVelocity = Vector3.zero
+        r.AssemblyAngularVelocity = Vector3.zero
+      end
+    end)
+
+    noclipConn:Disconnect()
+    setNoclip(false)
+
+    if not r then
+      return false
+    end
+    return (r.Position - target).Magnitude <= arrive + 1
+  end
+
+  -- mode-aware move: Safe Tween -> FlyTo, Instant -> InstantFlyTo
+  function skyMove.MoveTo(target, cancelFn, arriveDist, opts)
+    if roxyHubState.FarmMode == "Instant" then
+      return skyMove.InstantFlyTo(target, cancelFn, arriveDist)
+    end
+    return skyMove.FlyTo(target, cancelFn, arriveDist, opts)
+  end
+
+  local function basketCount()
+    local basket = localPlayer2:FindFirstChild("Basket")
+    return basket and #basket:GetChildren() or 0
+  end
+
+  -- point just outside the plot edge (+20 studs), 4 studs above the plot (Skyhawk fn9)
+  local function stagingPoint(baseplate, fromPos)
+    local topY = baseplate.Position.Y + baseplate.Size.Y / 2
+    local rel = baseplate.CFrame:PointToObjectSpace(fromPos)
+    local flat = Vector3.new(rel.X, 0, rel.Z)
+    if flat.Magnitude < 1 then
+      flat = Vector3.new(0, 0, 1)
+    end
+
+    local halfX = baseplate.Size.X / 2
+    local halfZ = baseplate.Size.Z / 2
+    local unit = flat.Unit
+    local scaled = unit / math.max(math.abs(unit.X) / (halfX + 20), math.abs(unit.Z) / (halfZ + 20))
+    local world = baseplate.CFrame:PointToWorldSpace(Vector3.new(scaled.X, 0, scaled.Z))
+    return Vector3.new(world.X, topY + 4, world.Z)
+  end
+
+  -- eggs that were dipped / are volcano eggs keep their state: never drop those
+  local function canRelay(basket)
+    for _, egg in ipairs(basket:GetChildren()) do
+      if egg.Name == "Volcanic Egg" or egg:GetAttribute("Egg") == "Volcanic Egg"
+        or egg:GetAttribute("VolcanoDipped") == true
+        or egg:GetAttribute("Escaping") == true
+        or egg:GetAttribute("VolcanoUntil") ~= nil then
+        return false
+      end
+
+      local mutation = egg:GetAttribute("Mutation")
+      if mutation == "Magma" or mutation == "Eternal" then
+        return false
+      end
+    end
+    return true
+  end
+
+  -- hold at the edge, drop the eggs, re-pick them next to the base
+  local function relayAtStage(stagePos, cancelFn)
+    local basket = localPlayer2:FindFirstChild("Basket")
+    local serverData = replicatedStorage:FindFirstChild("ServerData")
+    local active = serverData and serverData:FindFirstChild("ActiveEggs")
+      or replicatedStorage:FindFirstChild("ActiveEggs")
+
+    if not basket or not active or not basketDrop or not eggPickup then
+      return
+    end
+
+    v35.Status = "Re-picking eggs near base"
+
+    local holdUntil = os.clock() + 0.3
+    while os.clock() < holdUntil do
+      local hrp = root()
+      if hrp then
+        pcall(function()
+          hrp.CFrame = CFrame.new(stagePos) * hrp.CFrame.Rotation
+          hrp.AssemblyLinearVelocity = Vector3.zero
+        end)
+      end
+      runService.Heartbeat:Wait()
+    end
+
+    if cancelFn and cancelFn() then
+      return
+    end
+
+    local seen = {}
+    for _, child in ipairs(active:GetChildren()) do
+      seen[child] = true
+    end
+
+    local names = {}
+    for _, egg in ipairs(basket:GetChildren()) do
+      local name = egg:GetAttribute("Egg")
+      if type(name) ~= "string" then
+        name = egg.Name
+      end
+      table.insert(names, name)
+    end
+
+    for _, name in ipairs(names) do
+      basketDrop:FireServer(name)
+    end
+
+    local fresh = {}
+    local waitUntil = os.clock() + 3
+    while #fresh < #names and os.clock() < waitUntil do
+      for _, child in ipairs(active:GetChildren()) do
+        if not seen[child] and child:GetAttribute("OriginPosition") ~= nil
+          and typeof(child:GetAttribute("Position")) == "Vector3" then
+          seen[child] = true
+          table.insert(fresh, child)
+        end
+      end
+      runService.Heartbeat:Wait()
+    end
+
+    for _, egg in ipairs(fresh) do
+      local position = egg:GetAttribute("Position")
+
+      for _ = 1, 3 do
+        if egg.Parent == nil then
+          break
+        end
+
+        if typeof(position) == "Vector3" then
+          skyMove.MoveTo(position + Vector3.new(0, 3, 0), nil, 5)
+        end
+
+        local before = basketCount()
+        eggPickup:FireServer(egg.Name)
+
+        local pickUntil = os.clock() + 1.5
+        while basketCount() == before and os.clock() < pickUntil do
+          runService.Heartbeat:Wait()
+        end
+
+        if basketCount() > before then
+          break
+        end
+      end
+    end
+  end
+
+  -- carry eggs home:
+  --   always -> go to the plot edge, hold, drop + re-pick, THEN enter the plot
+  --   (same for Safe Tween and Instant; no distance threshold any more)
+  --   exception: "Return to Plot" trips and eggs that must keep their state
+  function skyMove.DeliverHome(baseplate, target, pickupPos, reason)
+    local cancelFn = function()
+      return not (roxyHubState.AutoFarm
+        or roxyHubState.AutoRebirth and roxyHubState.PrioritizeRebirthPet)
+    end
+
+    local hrp = root()
+    if not hrp then
+      return
+    end
+
+    local basket = localPlayer2:FindFirstChild("Basket")
+
+    local useRelay = reason ~= "Return to Plot"
+      and basket and #basket:GetChildren() > 0
+      and canRelay(basket)
+
+    if useRelay then
+      local stage = stagingPoint(baseplate, hrp.Position)
+      v35.Status = "Moving to base edge..."
+      skyMove.MoveTo(stage, cancelFn, 4)
+
+      local now = root()
+      if now and (now.Position - stage).Magnitude <= 10 and not cancelFn() then
+        relayAtStage(stage, cancelFn)
+      end
+
+      if basketCount() == 0 then
+        return
+      end
+    end
+
+    v35.Status = "Delivering to Plot..."
+    skyMove.MoveTo(target, cancelFn, 4)
+  end
+end
+
 local f37
 
 local function f38(p58, p59)
   local v148, v149, v150 = f12()
-  local cframe4, magnitude2, v151, connect2
 
   if not v149 then
     return false, "no_hrp"
-  else
-    local magnitude3 = (p58 - v149.Position).Magnitude
-    local v152 = p58 - v149.Position
+  end
 
-    if v152.Magnitude > 0.05 then
-      local vector2 = Vector3.new(v152.X, 0, v152.Z)
-
-      if vector2.Magnitude > 0.05 then
-        cframe4 = CFrame.lookAt(
-          p58 + Vector3.new(0, 1.8, 0), p58 + Vector3.new(0, 1.8, 0) + vector2.Unit
-        )
-      else
-        cframe4 = CFrame.new(p58 + Vector3.new(0, 1.8, 0))
-      end
-    else
-      cframe4 = CFrame.new(p58 + Vector3.new(0, 1.8, 0))
+  -- Safe Tween = Skyhawk's Tween (waypoint flight, Under/Over/Normal approach)
+  if roxyHubState.FarmMode == "Safe Tween" then
+    local function cancelled()
+      return not (roxyHubState.AutoFarm
+          or roxyHubState.AutoRebirth and roxyHubState.PrioritizeRebirthPet)
+        or (p59 ~= nil and not p59.Parent)
     end
 
-    if roxyHubState.FarmMode == "Safe Tween" and true then
-      local v153 = math.max(magnitude3 / 300, 0.05)
-      f35(v149, v150)
+    local arrived = skyMove.FlyTo(
+      p58 + Vector3.new(0, 3, 0), cancelled, 6, skyMove.RouteOpts()
+    )
 
-      local create4 = tweenService:Create(v149, TweenInfo.new(v153, Enum.EasingStyle.Linear), {
-        CFrame = cframe4,
-      })
-
-      v35.CurrentTween = create4
-      create4:Play()
-      v151 = false
-      connect2 = create4.Completed:Connect(function() v151 = true end)
-      local v154 = os.clock()
-
-      while true do
-        if not v151 and os.clock() - v154 < v153 + 1.2 then
-          if not (roxyHubState.AutoFarm
-            or roxyHubState.AutoRebirth and roxyHubState.PrioritizeRebirthPet) then
-            create4:Cancel()
-            pcall(function() connect2:Disconnect() end)
-            v35.CurrentTween = nil
-            f37(v149, v150)
-            magnitude2 = (p58 - v149.Position).Magnitude
-
-            if magnitude2 > 20 then
-              if magnitude2 < 80 then
-                v149.CFrame = cframe4
-                return true, "ok"
-              end
-
-              return false, "not_arrived"
-            end
-
-            return true, "ok"
-          end
-
-          if p59 and not p59.Parent then
-            break
-          end
-
-          task.wait(0.05)
-        else
-          pcall(function() connect2:Disconnect() end)
-          v35.CurrentTween = nil
-          f37(v149, v150)
-          magnitude2 = (p58 - v149.Position).Magnitude
-
-          if magnitude2 > 20 then
-            if magnitude2 < 80 then
-              v149.CFrame = cframe4
-              return true, "ok"
-            end
-
-            return false, "not_arrived"
-          end
-
-          return true, "ok"
-        end
-      end
-
-      create4:Cancel()
-      pcall(function() connect2:Disconnect() end)
-      v35.CurrentTween = nil
-      f37(v149, v150)
+    if p59 and not p59.Parent then
       return false, "despawned"
     end
 
-    if v149 then
-      v149.AssemblyLinearVelocity = Vector3.zero
-      v149.AssemblyAngularVelocity = Vector3.zero
-      v149.CFrame = cframe4
+    if not arrived then
+      return false, "not_arrived"
     end
 
     return true, "ok"
   end
+
+  -- Instant: teleport straight onto the egg
+  local cframe4
+  local v152 = p58 - v149.Position
+
+  if v152.Magnitude > 0.05 then
+    local vector2 = Vector3.new(v152.X, 0, v152.Z)
+
+    if vector2.Magnitude > 0.05 then
+      cframe4 = CFrame.lookAt(
+        p58 + Vector3.new(0, 1.8, 0), p58 + Vector3.new(0, 1.8, 0) + vector2.Unit
+      )
+    else
+      cframe4 = CFrame.new(p58 + Vector3.new(0, 1.8, 0))
+    end
+  else
+    cframe4 = CFrame.new(p58 + Vector3.new(0, 1.8, 0))
+  end
+
+  v149.AssemblyLinearVelocity = Vector3.zero
+  v149.AssemblyAngularVelocity = Vector3.zero
+  v149.CFrame = cframe4
+
+  return true, "ok"
 end
 
 function f37(p60, p61)
@@ -3146,6 +3597,7 @@ local f39
 
 local function f40(p62)
   local v155, v156, v157 = f12()
+  local pickupPos = v156 and v156.Position
   local v158 = f13()
   local v159 = not v158 or not v156 or not v157
   local cframe5, v160, connect3
@@ -3183,72 +3635,15 @@ local function f40(p62)
         local magnitude4 = (v166 - v162.Position).Magnitude
 
         if magnitude4 > 15 then
-          if roxyHubState.FarmMode == "Instant" then
-            v35.Status = "Instant Warp to Plot..."
+          skyMove.DeliverHome(baseplate, v166, pickupPos, p62)
 
-            if v35.CurrentTween then
-              pcall(function() v35.CurrentTween:Cancel() end)
-              v35.CurrentTween = nil
-            end
+          local v167, v168, v169 = f12()
 
-            f37(v162, v163)
-
-            if v162 then
-              v162.AssemblyLinearVelocity = Vector3.zero
-              v162.AssemblyAngularVelocity = Vector3.zero
-              v162.CFrame = CFrame.new(v166)
-            end
-
-            task.wait(0.08)
-            local v167, v168, v169 = f12()
-
-            if v168 then
-              v162 = v168
-
-              if (v166 - v162.Position).Magnitude > 15 then
-                v162.AssemblyLinearVelocity = Vector3.zero
-                v162.AssemblyAngularVelocity = Vector3.zero
-                v162.CFrame = CFrame.new(v166)
-
-                task.wait(0.05)
-              end
-            end
-          else
-            local v170 = v166 - v162.Position
-
-            if v170.Magnitude > 0.05 then
-              cframe5 = CFrame.lookAt(v166, v166 + v170.Unit)
-            else
-              cframe5 = CFrame.new(v166)
-            end
-
-            f35(v162, v163)
-            local v171 = math.max(magnitude4 / 320, 0.05)
-
-            local create5 = tweenService:Create(
-              v162, TweenInfo.new(v171, Enum.EasingStyle.Linear), { CFrame = cframe5 }
-            )
-
-            v35.CurrentTween = create5
-            create5:Play()
-            v160 = false
-            connect3 = create5.Completed:Connect(function() v160 = true end)
-            local v172 = os.clock()
-
-            while not v160 and os.clock() - v172 < v171 + 1.5 do
-              if not (roxyHubState.AutoFarm
-                or roxyHubState.AutoRebirth and roxyHubState.PrioritizeRebirthPet) then
-                create5:Cancel()
-                break
-              end
-
-              task.wait(0.05)
-            end
-
-            pcall(function() connect3:Disconnect() end)
-            v35.CurrentTween = nil
-            f37(v162, v163)
+          if not v168 then
+            return
           end
+
+          v162, v163 = v168, v169
         end
 
         if firetouchinterest then
@@ -5746,18 +6141,17 @@ local v359 = {}
 f50(infoTab, "Info", function()
   infoTab:Section({ Title = "Script Information", Opened = true }):Paragraph({
     Title = "RoxyHub | Ride a Pet",
-    Desc = "Version: v1.2.0 [Release]",
+    Desc = "Version: v1.2.4 [Release]",
   })
 
   local section = infoTab:Section({ Title = "Latest Patch Notes", Opened = true })
 
   section:Paragraph({
-    Title = "v1.2.0 - Fusion & Volcano Overhaul",
+    Title = "v1.2.4 - Improve the Master Auto Farm ",
     Desc = [[
-- Added Event Tab: Auto Fuse Machine with Rarity & Multi-Select Filters
-- Added Real-time Fuse Monitor (Countdown & Slots)
-- Fixed Auto Magma Lava Dip (Volcanic Egg support + Retry Handshake)
-- Fixed Egg Delivery & Hatching deadlocks]],
+- Added Tween/Return Speed
+- Added Tween Approac (OverMap, UnderMap, Normal)
+- Fixed Egg Delivery Fail (That asshole Roxy cant fix shit)]],
   })
 
   section:Paragraph({
@@ -5876,6 +6270,23 @@ Mode: %s | Sync Delay: %.2fs]], tostring(v35.Target or "None"), tostring(v35.Tar
     Values = { "Safe Tween", "Instant" },
     Value = roxyHubState.FarmMode or "Instant",
     Callback = function(value83) roxyHubState.FarmMode = value83 end,
+  })
+
+  v359.StealApproach = section3:Dropdown({
+    Title = "Tween Approach",
+    Values = { "Over Map", "Under Map", "Normal" },
+    Value = roxyHubState.StealApproach or "Over Map",
+    Callback = function(valueA) roxyHubState.StealApproach = tostring(valueA) end,
+  })
+
+  -- shared by the run to the egg and the return to the plot; applies live
+  v359.TweenSpeed = section3:Slider({
+    Title = "Tween / Return Speed",
+    Step = 50,
+    Value = { Min = 100, Max = 10000, Default = math.clamp(tonumber(roxyHubState.TweenSpeed) or 1250, 100, 10000) },
+    Callback = function(valueS)
+      roxyHubState.TweenSpeed = math.clamp(tonumber(valueS) or 1250, 100, 10000)
+    end,
   })
 
   v359.MinFarmRarity = section3:Dropdown({
