@@ -1,8 +1,3 @@
---[[
-    Swing For Eggs by Astra Hub
-    UI: WindUI
-]]
-
 local wz
 local wg
 local vY
