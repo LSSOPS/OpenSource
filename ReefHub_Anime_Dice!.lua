@@ -2,7 +2,7 @@ local Players = game:GetService("Players")
 local RS = game:GetService("ReplicatedStorage")
 local LocalPlayer = Players.LocalPlayer
 
-local AUTOEXEC_CODE = [[loadstring(game:HttpGet("https://raw.githubusercontent.com/perfectusmim1/animeastral/refs/heads/main/animedice.lua"))()]]
+local AUTOEXEC_CODE = [[loadstring(game:HttpGet("https://pastefy.app/9MooaVB6/raw"))()]]
 
 if game.PlaceId ~= 113290951185459 then
     error("[Anime Dice - Perfectus] This script only works in Anime Dice.", 0)
