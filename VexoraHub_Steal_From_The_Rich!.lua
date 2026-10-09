@@ -2220,8 +2220,8 @@ local HUB_NAME    = "Vexora Hub"
 local SCRIPT_NAME = "Steal From The Rich!"
 local SCRIPT_VER  = "v0.5"
 local MAIN_ICON   = "coins"
-local GOLD        = Color3.fromHex("#F5C542")
-local EMERALD     = Color3.fromHex("#2ECC71")
+local GOLD        = Color3.fromHex("#E8E8EC") -- bạc sáng (màu nhấn chính)
+local EMERALD     = Color3.fromHex("#9A9AA6") -- xám bạc (màu nhấn phụ)
 
 local function LoadWindUI()
     local sources = {
@@ -2257,18 +2257,18 @@ Notify = function(text, duration, icon)
 end
 
 WindUI:AddTheme({
-    Name        = "RichGreen",
-    Accent      = Color3.fromHex("#12301F"),
-    Dialog      = Color3.fromHex("#0D2216"),
-    Outline     = GOLD,
-    Text        = Color3.fromHex("#EAFFF1"),
-    Placeholder = Color3.fromHex("#6F9A80"),
-    Background  = Color3.fromHex("#08150D"),
-    Button      = Color3.fromHex("#1E5A37"),
+    Name        = "VexoraBlack",
+    Accent      = Color3.fromHex("#17171B"),
+    Dialog      = Color3.fromHex("#0F0F12"),
+    Outline     = Color3.fromHex("#2E2E36"),
+    Text        = Color3.fromHex("#F2F2F5"),
+    Placeholder = Color3.fromHex("#6B6B76"),
+    Background  = Color3.fromHex("#09090B"),
+    Button      = Color3.fromHex("#22222A"),
     Icon        = GOLD,
-    Toggle      = EMERALD,
-    Slider      = EMERALD,
-    Checkbox    = EMERALD,
+    Toggle      = Color3.fromHex("#F2F2F5"),
+    Slider      = Color3.fromHex("#F2F2F5"),
+    Checkbox    = Color3.fromHex("#F2F2F5"),
     Primary     = GOLD,
     PanelBackground             = Color3.fromHex("#FFFFFF"),
     PanelBackgroundTransparency = 0.95,
@@ -2280,7 +2280,7 @@ local function BuildInterface()
         Author        = "by " .. HUB_NAME,
         Folder        = "VexoraHub_StealFromTheRich",
         Icon          = MAIN_ICON,
-        Theme         = "RichGreen",
+        Theme         = "VexoraBlack",
         Size          = UDim2.fromOffset(620, 470),
         ToggleKey     = Enum.KeyCode.RightShift,
         Resizable     = true,
@@ -2323,7 +2323,7 @@ local function BuildInterface()
     end)
 
     pcall(function()
-        Window:Tag({ Title = SCRIPT_VER, Color = Color3.fromHex("#1E5A37"), Border = true })
+        Window:Tag({ Title = SCRIPT_VER, Color = Color3.fromHex("#22222A"), Border = true })
     end)
 
     local TabInfo = Window:Tab({ Title = "Info", Icon = "info", Desc = "Account, server and script info" })
@@ -2573,7 +2573,7 @@ local function BuildInterface()
         Title    = "Theme",
         Desc     = "Change the look of the menu",
         Values   = themeNames,
-        Value    = "RichGreen",
+        Value    = "VexoraBlack",
         Callback = function(name)
             pcall(function()
                 WindUI:SetTheme(type(name) == "table" and (name.Title or name[1]) or name)
