@@ -86,7 +86,7 @@ function Intro.Play()
             text.Name = name
             text.Size = UDim2.fromScale(1, 1)
             text.BackgroundTransparency = 1
-            text.Text = "cracked by boars"
+            text.Text = "cracked by LSS"
             text.Font = Enum.Font.GothamBold
             text.TextScaled = true
             text.TextWrapped = true
@@ -35303,7 +35303,7 @@ Escape Timer: %*]]
 		Greetings:AddLabel({ Text = ("%s, <b>%s</b> "):format(greeting, localPlayer.DisplayName), DoesWrap = true })
 		Greetings:AddDivider()
 		Greetings:AddLabel({ Text = "Welcome to <b><font color=\"#fffb00\">Resonance crack</font></b>", DoesWrap = true })
-		Greetings:AddLabel({ Text = "cracked by: boars", DoesWrap = true })
+		Greetings:AddLabel({ Text = "cracked by: LSS", DoesWrap = true })
 		Greetings:AddLabel({ Text = "https://discord.gg/762BXzzfHr", DoesWrap = true })
 	end
 
