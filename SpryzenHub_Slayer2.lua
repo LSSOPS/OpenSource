@@ -1,10 +1,9 @@
-
 if not game:IsLoaded() then
 	game.Loaded:Wait()
 end
 
 local SCRIPT_VERSION = "Beta"
-local UI_SOURCE_URL = "https://raw.githubusercontent.com/joustingmatch/OuroFlow/main/Source.luau"
+local UI_SOURCE_URL = "https://pastefy.app/9vgkDsd2/raw"
 local INSTANCE_KEY = "__Slayer2Hub"
 
 local Players = game:GetService("Players")
